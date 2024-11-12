@@ -1,4 +1,3 @@
-import 'package:collection/collection.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/state.dart';
@@ -49,7 +48,7 @@ class HomePage extends StatelessWidget {
                   child: SingleChildScrollView(
                     child: IntrinsicHeight(
                       child: Selector<Config, bool>(
-                        selector: (_, config) => config.showLabel,
+                        selector: (_, config) => config.appSetting.showLabel,
                         builder: (_, showLabel, __) {
                           return NavigationRail(
                             backgroundColor:
@@ -97,7 +96,10 @@ class HomePage extends StatelessWidget {
                 IconButton(
                   onPressed: () {
                     final config = globalState.appController.config;
-                    config.showLabel = !config.showLabel;
+                    final appSetting = config.appSetting;
+                    config.appSetting = appSetting.copyWith(
+                      showLabel: !appSetting.showLabel,
+                    );
                   },
                   icon: const Icon(Icons.menu),
                 )
@@ -155,56 +157,47 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BackScope(
-      child: LayoutBuilder(
-        builder: (_, container) {
-          final appController = globalState.appController;
-          final maxWidth = container.maxWidth;
-          if (appController.appState.viewWidth != maxWidth) {
-            globalState.appController.updateViewWidth(maxWidth);
-          }
-          return Selector2<AppState, Config, HomeState>(
-            selector: (_, appState, config) {
-              return HomeState(
-                currentLabel: appState.currentLabel,
-                navigationItems: appState.currentNavigationItems,
-                viewMode: other.getViewMode(maxWidth),
-                locale: config.locale,
-              );
-            },
-            shouldRebuild: (prev, next) {
-              return prev != next;
-            },
-            builder: (_, state, child) {
-              final viewMode = state.viewMode;
-              final navigationItems = state.navigationItems;
-              final currentLabel = state.currentLabel;
-              final index = navigationItems.lastIndexWhere(
-                (element) => element.label == currentLabel,
-              );
-              final currentIndex = index == -1 ? 0 : index;
-              final navigationBar = _getNavigationBar(
-                context: context,
-                viewMode: viewMode,
-                navigationItems: navigationItems,
-                currentIndex: currentIndex,
-              );
-              final bottomNavigationBar =
-                  viewMode == ViewMode.mobile ? navigationBar : null;
-              final sideNavigationBar =
-                  viewMode != ViewMode.mobile ? navigationBar : null;
-              return CommonScaffold(
-                key: globalState.homeScaffoldKey,
-                title: Intl.message(
-                  currentLabel,
-                ),
-                sideNavigationBar: sideNavigationBar,
-                body: child!,
-                bottomNavigationBar: bottomNavigationBar,
-              );
-            },
-            child: _buildPageView(),
+      child: Selector2<AppState, Config, HomeState>(
+        selector: (_, appState, config) {
+          return HomeState(
+            currentLabel: appState.currentLabel,
+            navigationItems: appState.currentNavigationItems,
+            viewMode: appState.viewMode,
+            locale: config.appSetting.locale,
           );
         },
+        shouldRebuild: (prev, next) {
+          return prev != next;
+        },
+        builder: (_, state, child) {
+          final viewMode = state.viewMode;
+          final navigationItems = state.navigationItems;
+          final currentLabel = state.currentLabel;
+          final index = navigationItems.lastIndexWhere(
+            (element) => element.label == currentLabel,
+          );
+          final currentIndex = index == -1 ? 0 : index;
+          final navigationBar = _getNavigationBar(
+            context: context,
+            viewMode: viewMode,
+            navigationItems: navigationItems,
+            currentIndex: currentIndex,
+          );
+          final bottomNavigationBar =
+              viewMode == ViewMode.mobile ? navigationBar : null;
+          final sideNavigationBar =
+              viewMode != ViewMode.mobile ? navigationBar : null;
+          return CommonScaffold(
+            key: globalState.homeScaffoldKey,
+            title: Intl.message(
+              currentLabel,
+            ),
+            sideNavigationBar: sideNavigationBar,
+            body: child!,
+            bottomNavigationBar: bottomNavigationBar,
+          );
+        },
+        child: _buildPageView(),
       ),
     );
   }

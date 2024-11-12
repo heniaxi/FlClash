@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'dart:math';
 
-import 'package:collection/collection.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:flutter/material.dart';
@@ -304,7 +302,7 @@ extension GroupExt on Group {
   String get realNow => now ?? "";
 
   String getCurrentSelectedName(String proxyName) {
-    if (type == GroupType.URLTest) {
+    if (type.isURLTestOrFallback) {
       return realNow.isNotEmpty ? realNow : proxyName;
     }
     return proxyName.isNotEmpty ? proxyName : realNow;
@@ -433,6 +431,13 @@ class HotKeyAction with _$HotKeyAction {
       _$HotKeyActionFromJson(json);
 }
 
-const keyboardModifiersEquality = SetEquality<KeyboardModifier>();
-const hotKeyActionsEquality = ListEquality<HotKeyAction>();
+typedef Validator = String? Function(String? value);
 
+@freezed
+class Field with _$Field {
+  const factory Field({
+    required String label,
+    required String value,
+    Validator? validator,
+  }) = _Field;
+}

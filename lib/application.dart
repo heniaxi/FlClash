@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io';
-
+import 'package:animations/animations.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/manager/hotkey_manager.dart';
 import 'package:fl_clash/manager/manager.dart';
+import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -29,11 +29,13 @@ runAppWithPreferences(
       ChangeNotifierProvider<Config>(
         create: (_) => config,
       ),
+      ChangeNotifierProvider<AppFlowingState>(
+        create: (_) => AppFlowingState(),
+      ),
       ChangeNotifierProxyProvider2<Config, ClashConfig, AppState>(
         create: (_) => appState,
         update: (_, config, clashConfig, appState) {
           appState?.mode = clashConfig.mode;
-          appState?.isCompatible = config.isCompatible;
           appState?.selectedMap = config.currentSelectedMap;
           return appState!;
         },
@@ -58,10 +60,18 @@ class ApplicationState extends State<Application> {
 
   final _pageTransitionsTheme = const PageTransitionsTheme(
     builders: <TargetPlatform, PageTransitionsBuilder>{
-      TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-      TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
-      TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
-      TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+      TargetPlatform.android: SharedAxisPageTransitionsBuilder(
+        transitionType: SharedAxisTransitionType.horizontal,
+      ),
+      TargetPlatform.windows: SharedAxisPageTransitionsBuilder(
+        transitionType: SharedAxisTransitionType.horizontal,
+      ),
+      TargetPlatform.linux: SharedAxisPageTransitionsBuilder(
+        transitionType: SharedAxisTransitionType.horizontal,
+      ),
+      TargetPlatform.macOS: SharedAxisPageTransitionsBuilder(
+        transitionType: SharedAxisTransitionType.horizontal,
+      ),
     },
   );
 
@@ -85,6 +95,7 @@ class ApplicationState extends State<Application> {
     super.initState();
     _initTimer();
     globalState.appController = AppController(context);
+    globalState.measure = Measure.of(context);
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
       final currentContext = globalState.navigatorKey.currentContext;
       if (currentContext != null) {
@@ -92,6 +103,7 @@ class ApplicationState extends State<Application> {
       }
       await globalState.appController.init();
       globalState.appController.initLink();
+      app?.initShortcuts();
     });
   }
 
@@ -161,10 +173,11 @@ class ApplicationState extends State<Application> {
         child: ClashManager(
           child: Selector2<AppState, Config, ApplicationSelectorState>(
             selector: (_, appState, config) => ApplicationSelectorState(
-              locale: config.locale,
-              themeMode: config.themeMode,
-              primaryColor: config.primaryColor,
-              prueBlack: config.prueBlack,
+              locale: config.appSetting.locale,
+              themeMode: config.themeProps.themeMode,
+              primaryColor: config.themeProps.primaryColor,
+              prueBlack: config.themeProps.prueBlack,
+              fontFamily: config.themeProps.fontFamily,
             ),
             builder: (_, state, child) {
               return DynamicColorBuilder(
@@ -179,8 +192,15 @@ class ApplicationState extends State<Application> {
                       GlobalWidgetsLocalizations.delegate
                     ],
                     builder: (_, child) {
-                      return MediaManager(
-                        child: _buildPage(child!),
+                      return LayoutBuilder(
+                        builder: (_, container) {
+                          final appController = globalState.appController;
+                          final maxWidth = container.maxWidth;
+                          if (appController.appState.viewWidth != maxWidth) {
+                            globalState.appController.updateViewWidth(maxWidth);
+                          }
+                          return _buildPage(child!);
+                        },
                       );
                     },
                     scrollBehavior: BaseScrollBehavior(),
@@ -191,6 +211,7 @@ class ApplicationState extends State<Application> {
                     themeMode: state.themeMode,
                     theme: ThemeData(
                       useMaterial3: true,
+                      fontFamily: state.fontFamily.value,
                       pageTransitionsTheme: _pageTransitionsTheme,
                       colorScheme: _getAppColorScheme(
                         brightness: Brightness.light,
@@ -200,6 +221,7 @@ class ApplicationState extends State<Application> {
                     ),
                     darkTheme: ThemeData(
                       useMaterial3: true,
+                      fontFamily: state.fontFamily.value,
                       pageTransitionsTheme: _pageTransitionsTheme,
                       colorScheme: _getAppColorScheme(
                         brightness: Brightness.dark,

@@ -6,7 +6,7 @@ import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-Widget currentGroupProxyNameBuilder({
+Widget currentSelectedProxyNameBuilder({
   required String groupName,
   required Widget Function(String currentGroupName) builder,
 }) {
@@ -16,8 +16,8 @@ Widget currentGroupProxyNameBuilder({
       final selectedProxyName = config.currentSelectedMap[groupName];
       return group?.getCurrentSelectedName(selectedProxyName ?? "") ?? "";
     },
-    builder: (_, currentGroupName, ___) {
-      return builder(currentGroupName);
+    builder: (_, currentSelectedProxyName, ___) {
+      return builder(currentSelectedProxyName);
     },
   );
 }
@@ -81,9 +81,9 @@ double getScrollToSelectedOffset({
   final appController = globalState.appController;
   final columns = other.getProxiesColumns(
     appController.appState.viewWidth,
-    appController.config.proxiesLayout,
+    appController.config.proxiesStyle.layout,
   );
-  final proxyCardType = appController.config.proxyCardType;
+  final proxyCardType = appController.config.proxiesStyle.cardType;
   final selectedName = appController.getCurrentSelectedName(groupName);
   final findSelectedIndex = proxies.indexWhere(
     (proxy) => proxy.name == selectedName,

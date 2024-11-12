@@ -2,14 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:fl_clash/common/archive.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart';
 import 'package:provider/provider.dart';
+import 'package:tray_manager/tray_manager.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'clash/core.dart';
@@ -19,19 +22,25 @@ import 'common/common.dart';
 class AppController {
   final BuildContext context;
   late AppState appState;
+  late AppFlowingState appFlowingState;
   late Config config;
   late ClashConfig clashConfig;
   late Function updateClashConfigDebounce;
   late Function updateGroupDebounce;
   late Function addCheckIpNumDebounce;
   late Function applyProfileDebounce;
+  late Function savePreferencesDebounce;
 
   AppController(this.context) {
     appState = context.read<AppState>();
     config = context.read<Config>();
     clashConfig = context.read<ClashConfig>();
+    appFlowingState = context.read<AppFlowingState>();
     updateClashConfigDebounce = debounce<Function()>(() async {
       await updateClashConfig();
+    });
+    savePreferencesDebounce = debounce<Function()>(() async {
+      await savePreferences();
     });
     applyProfileDebounce = debounce<Function()>(() async {
       await applyProfile(isPrue: true);
@@ -46,23 +55,22 @@ class AppController {
 
   updateStatus(bool isStart) async {
     if (isStart) {
-      await globalState.handleStart(
-        config: config,
-        clashConfig: clashConfig,
-      );
+      await globalState.handleStart();
       updateRunTime();
       updateTraffic();
       globalState.updateFunctionLists = [
         updateRunTime,
         updateTraffic,
       ];
-      applyProfileDebounce();
+      if (!Platform.isAndroid) {
+        applyProfileDebounce();
+      }
     } else {
       await globalState.handleStop();
       clashCore.resetTraffic();
-      appState.traffics = [];
-      appState.totalTraffic = Traffic();
-      appState.runTime = null;
+      appFlowingState.traffics = [];
+      appFlowingState.totalTraffic = Traffic();
+      appFlowingState.runTime = null;
       addCheckIpNumDebounce();
     }
   }
@@ -76,15 +84,15 @@ class AppController {
     if (startTime != null) {
       final startTimeStamp = startTime.millisecondsSinceEpoch;
       final nowTimeStamp = DateTime.now().millisecondsSinceEpoch;
-      appState.runTime = nowTimeStamp - startTimeStamp;
+      appFlowingState.runTime = nowTimeStamp - startTimeStamp;
     } else {
-      appState.runTime = null;
+      appFlowingState.runTime = null;
     }
   }
 
   updateTraffic() {
     globalState.updateTraffic(
-      appState: appState,
+      appFlowingState: appFlowingState,
     );
   }
 
@@ -116,11 +124,15 @@ class AppController {
   }
 
   Future<void> updateClashConfig({bool isPatch = true}) async {
-    await globalState.updateClashConfig(
-      clashConfig: clashConfig,
-      config: config,
-      isPatch: isPatch,
-    );
+    final commonScaffoldState = globalState.homeScaffoldKey.currentState;
+    if (commonScaffoldState?.mounted != true) return;
+    await commonScaffoldState?.loadingRun(() async {
+      await globalState.updateClashConfig(
+        clashConfig: clashConfig,
+        config: config,
+        isPatch: isPatch,
+      );
+    });
   }
 
   Future applyProfile({bool isPrue = false}) async {
@@ -163,7 +175,7 @@ class AppController {
       try {
         updateProfile(profile);
       } catch (e) {
-        appState.addLog(
+        appFlowingState.addLog(
           Log(
             logLevel: LogLevel.info,
             payload: e.toString(),
@@ -191,17 +203,8 @@ class AppController {
   }
 
   savePreferences() async {
-    await saveConfigPreferences();
-    await saveClashConfigPreferences();
-  }
-
-  saveConfigPreferences() async {
-    debugPrint("saveConfigPreferences");
+    debugPrint("[APP] savePreferences");
     await preferences.saveConfig(config);
-  }
-
-  saveClashConfigPreferences() async {
-    debugPrint("saveClashConfigPreferences");
     await preferences.saveClashConfig(clashConfig);
   }
 
@@ -218,9 +221,9 @@ class AppController {
   }
 
   handleBackOrExit() async {
-    if (config.isMinimizeOnExit) {
+    if (config.appSetting.minimizeOnExit) {
       if (system.isDesktop) {
-        await savePreferences();
+        await savePreferencesDebounce();
       }
       await system.back();
     } else {
@@ -237,16 +240,16 @@ class AppController {
   }
 
   updateLogStatus() {
-    if (config.openLogs) {
+    if (config.appSetting.openLogs) {
       clashCore.startLog();
     } else {
       clashCore.stopLog();
-      appState.logs = [];
+      appFlowingState.logs = [];
     }
   }
 
   autoCheckUpdate() async {
-    if (!config.autoCheckUpdate) return;
+    if (!config.appSetting.autoCheckUpdate) return;
     final res = await request.checkForUpdate();
     checkUpdateResultHandle(data: res);
   }
@@ -297,10 +300,10 @@ class AppController {
   init() async {
     final isDisclaimerAccepted = await handlerDisclaimer();
     if (!isDisclaimerAccepted) {
-      system.exit();
+      handleExit();
     }
     updateLogStatus();
-    if (!config.silentLaunch) {
+    if (!config.appSetting.silentLaunch) {
       window?.show();
     }
     if (Platform.isAndroid) {
@@ -309,7 +312,7 @@ class AppController {
     if (globalState.isStart) {
       await updateStatus(true);
     } else {
-      await updateStatus(config.autoRun);
+      await updateStatus(config.appSetting.autoRun);
     }
     autoUpdateProfiles();
     autoCheckUpdate();
@@ -324,7 +327,7 @@ class AppController {
       return;
     }
     appState.currentLabel = appState.currentNavigationItems[index].label;
-    if ((config.isAnimateToPage || hasAnimate)) {
+    if ((config.appSetting.isAnimateToPage || hasAnimate)) {
       globalState.pageController?.animateToPage(
         index,
         duration: kTabScrollDuration,
@@ -400,7 +403,9 @@ class AppController {
               ),
               TextButton(
                 onPressed: () {
-                  config.isDisclaimerAccepted = true;
+                  config.appSetting = config.appSetting.copyWith(
+                    disclaimerAccepted: true,
+                  );
                   Navigator.of(context).pop<bool>(true);
                 },
                 child: Text(appLocalizations.agree),
@@ -412,7 +417,7 @@ class AppController {
   }
 
   Future<bool> handlerDisclaimer() async {
-    if (config.isDisclaimerAccepted) {
+    if (config.appSetting.disclaimerAccepted) {
       return true;
     }
     return showDisclaimer();
@@ -504,7 +509,7 @@ class AppController {
   }
 
   List<Proxy> getSortProxies(List<Proxy> proxies) {
-    return switch (config.proxiesSortType) {
+    return switch (config.proxiesStyle.sortType) {
       ProxiesSortType.none => proxies,
       ProxiesSortType.delay => _sortOfDelay(proxies),
       ProxiesSortType.name => _sortOfName(proxies),
@@ -516,21 +521,6 @@ class AppController {
     return group?.getCurrentSelectedName(
             config.currentSelectedMap[groupName] ?? '') ??
         '';
-  }
-
-  Future<List<int>> backupData() async {
-    final homeDirPath = await appPath.getHomeDirPath();
-    final profilesPath = await appPath.getProfilesPath();
-    final configJson = config.toJson();
-    final clashConfigJson = clashConfig.toJson();
-    return Isolate.run<List<int>>(() async {
-      final archive = Archive();
-      archive.add("config.json", configJson);
-      archive.add("clashConfig.json", clashConfigJson);
-      await archive.addDirectoryToArchive(profilesPath, homeDirPath);
-      final zipEncoder = ZipEncoder();
-      return zipEncoder.encode(archive) ?? [];
-    });
   }
 
   updateTun() {
@@ -546,11 +536,19 @@ class AppController {
   }
 
   updateStart() {
-    updateStatus(!appState.isStart);
+    updateStatus(!appFlowingState.isStart);
   }
 
   updateAutoLaunch() {
-    config.autoLaunch = !config.autoLaunch;
+    config.appSetting = config.appSetting.copyWith(
+      autoLaunch: !config.appSetting.autoLaunch,
+    );
+  }
+
+  updateAdminAutoLaunch() {
+    config.appSetting = config.appSetting.copyWith(
+      adminAutoLaunch: !config.appSetting.adminAutoLaunch,
+    );
   }
 
   updateVisible() async {
@@ -569,6 +567,153 @@ class AppController {
     }
     final nextIndex = index + 1 > Mode.values.length - 1 ? 0 : index + 1;
     clashConfig.mode = Mode.values[nextIndex];
+  }
+
+  Future<bool> exportLogs() async {
+    final logsRaw = appFlowingState.logs.map(
+      (item) => item.toString(),
+    );
+    final data = await Isolate.run<List<int>>(() async {
+      final logsRawString = logsRaw.join("\n");
+      return utf8.encode(logsRawString);
+    });
+    return await picker.saveFile(
+          other.logFile,
+          Uint8List.fromList(data),
+        ) !=
+        null;
+  }
+
+  Future<List<int>> backupData() async {
+    final homeDirPath = await appPath.getHomeDirPath();
+    final profilesPath = await appPath.getProfilesPath();
+    final configJson = config.toJson();
+    final clashConfigJson = clashConfig.toJson();
+    return Isolate.run<List<int>>(() async {
+      final archive = Archive();
+      archive.add("config.json", configJson);
+      archive.add("clashConfig.json", clashConfigJson);
+      await archive.addDirectoryToArchive(profilesPath, homeDirPath);
+      final zipEncoder = ZipEncoder();
+      return zipEncoder.encode(archive) ?? [];
+    });
+  }
+
+  Future _updateSystemTray({
+    required Brightness? brightness,
+    bool force = false,
+  }) async {
+    if (Platform.isLinux || force) {
+      await trayManager.destroy();
+    }
+    await trayManager.setIcon(
+      other.getTrayIconPath(
+        brightness: brightness ??
+            WidgetsBinding.instance.platformDispatcher.platformBrightness,
+      ),
+      isTemplate: true,
+    );
+    if (!Platform.isLinux) {
+      await trayManager.setToolTip(
+        appName,
+      );
+    }
+  }
+
+  updateTray([bool focus = false]) async {
+    if (!Platform.isLinux) {
+      await _updateSystemTray(
+        brightness: appState.brightness,
+        force: focus,
+      );
+    }
+    List<MenuItem> menuItems = [];
+    final showMenuItem = MenuItem(
+      label: appLocalizations.show,
+      onClick: (_) {
+        window?.show();
+      },
+    );
+    menuItems.add(showMenuItem);
+    final startMenuItem = MenuItem.checkbox(
+      label: appFlowingState.isStart
+          ? appLocalizations.stop
+          : appLocalizations.start,
+      onClick: (_) async {
+        globalState.appController.updateStart();
+      },
+      checked: false,
+    );
+    menuItems.add(startMenuItem);
+    menuItems.add(MenuItem.separator());
+    for (final mode in Mode.values) {
+      menuItems.add(
+        MenuItem.checkbox(
+          label: Intl.message(mode.name),
+          onClick: (_) {
+            globalState.appController.clashConfig.mode = mode;
+          },
+          checked: mode == clashConfig.mode,
+        ),
+      );
+    }
+    menuItems.add(MenuItem.separator());
+    if (appFlowingState.isStart) {
+      menuItems.add(
+        MenuItem.checkbox(
+          label: appLocalizations.tun,
+          onClick: (_) {
+            globalState.appController.updateTun();
+          },
+          checked: clashConfig.tun.enable,
+        ),
+      );
+      menuItems.add(
+        MenuItem.checkbox(
+          label: appLocalizations.systemProxy,
+          onClick: (_) {
+            globalState.appController.updateSystemProxy();
+          },
+          checked: config.desktopProps.systemProxy,
+        ),
+      );
+      menuItems.add(MenuItem.separator());
+    }
+    final autoStartMenuItem = MenuItem.checkbox(
+      label: appLocalizations.autoLaunch,
+      onClick: (_) async {
+        globalState.appController.updateAutoLaunch();
+      },
+      checked: config.appSetting.autoLaunch,
+    );
+    menuItems.add(autoStartMenuItem);
+
+    if(Platform.isWindows){
+      final adminAutoStartMenuItem = MenuItem.checkbox(
+        label: appLocalizations.adminAutoLaunch,
+        onClick: (_) async {
+          globalState.appController.updateAdminAutoLaunch();
+        },
+        checked: config.appSetting.adminAutoLaunch,
+      );
+      menuItems.add(adminAutoStartMenuItem);
+    }
+    menuItems.add(MenuItem.separator());
+    final exitMenuItem = MenuItem(
+      label: appLocalizations.exit,
+      onClick: (_) async {
+        await globalState.appController.handleExit();
+      },
+    );
+    menuItems.add(exitMenuItem);
+    final menu = Menu(items: menuItems);
+    await trayManager.setContextMenu(menu);
+    if (Platform.isLinux) {
+      await _updateSystemTray(
+        brightness: appState.brightness,
+        force: focus,
+      );
+    }
   }
 
   recoveryData(

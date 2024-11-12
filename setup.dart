@@ -187,6 +187,7 @@ class Build {
       env["GOARCH"] = item.arch.name;
       env["CGO_ENABLED"] = "1";
       env["CC"] = _getCc(item);
+      env["CFLAGS"] = "-O3 -Werror";
 
       await exec(
         [
@@ -335,6 +336,9 @@ class BuildCommand extends Command {
     String args = '',
   }) async {
     await Build.getDistributor();
+/*    final tag = Platform.environment["TAG"] ?? "+";
+    final isDev = tag.contains("+");
+    final channelArgs = isDev && platform == PlatformType.android ? "--build-flavor dev" : "";*/
     await Build.exec(
       name: name,
       Build.getExecutable(

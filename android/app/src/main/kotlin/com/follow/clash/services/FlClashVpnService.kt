@@ -15,71 +15,43 @@ import android.os.Build
 import android.os.IBinder
 import android.os.Parcel
 import android.os.RemoteException
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.follow.clash.BaseServiceInterface
 import com.follow.clash.GlobalState
 import com.follow.clash.MainActivity
 import com.follow.clash.R
+import com.follow.clash.TempActivity
+import com.follow.clash.extensions.getActionPendingIntent
+import com.follow.clash.extensions.toCIDR
 import com.follow.clash.models.AccessControlMode
-import com.follow.clash.models.Props
-import com.follow.clash.models.TunProps
+import com.follow.clash.models.VpnOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 
-@SuppressLint("WrongConstant")
 class FlClashVpnService : VpnService(), BaseServiceInterface {
-
-    companion object {
-        private val passList = listOf(
-            "*zhihu.com",
-            "*zhimg.com",
-            "*jd.com",
-            "100ime-iat-api.xfyun.cn",
-            "*360buyimg.com",
-            "localhost",
-            "*.local",
-            "127.*",
-            "10.*",
-            "172.16.*",
-            "172.17.*",
-            "172.18.*",
-            "172.19.*",
-            "172.2*",
-            "172.30.*",
-            "172.31.*",
-            "192.168.*"
-        )
-        private const val TUN_MTU = 9000
-        private const val TUN_SUBNET_PREFIX = 30
-        private const val TUN_GATEWAY = "172.19.0.1"
-        private const val TUN_SUBNET_PREFIX6 = 126
-        private const val TUN_GATEWAY6 = "fdfe:dcba:9876::1"
-        private const val TUN_PORTAL = "172.19.0.2"
-        private const val TUN_PORTAL6 = "fdfe:dcba:9876::2"
-        private const val TUN_DNS = TUN_PORTAL
-        private const val TUN_DNS6 = TUN_PORTAL6
-        private const val NET_ANY = "0.0.0.0"
-        private const val NET_ANY6 = "::"
-    }
-
     override fun onCreate() {
         super.onCreate()
         GlobalState.initServiceEngine(applicationContext)
     }
 
-    override fun start(port: Int, props: Props?): TunProps {
+    override fun start(options: VpnOptions): Int {
         return with(Builder()) {
-            addAddress(TUN_GATEWAY, TUN_SUBNET_PREFIX)
-            addAddress(TUN_GATEWAY6, TUN_SUBNET_PREFIX6)
-            addRoute(NET_ANY, 0)
-            addRoute(NET_ANY6, 0)
-            addDnsServer(TUN_DNS)
-            addDnsServer(TUN_DNS6)
-            setMtu(TUN_MTU)
-            props?.accessControl?.let { accessControl ->
+            if (options.ipv4Address.isNotEmpty()) {
+                val cidr = options.ipv4Address.toCIDR()
+                addAddress(cidr.address, cidr.prefixLength)
+                addRoute("0.0.0.0", 0)
+            }
+            if (options.ipv6Address.isNotEmpty()) {
+                val cidr = options.ipv6Address.toCIDR()
+                addAddress(cidr.address, cidr.prefixLength)
+                addRoute("::", 0)
+            }
+            addDnsServer(options.dnsServerAddress)
+            setMtu(9000)
+            options.accessControl?.let { accessControl ->
                 when (accessControl.mode) {
                     AccessControlMode.acceptSelected -> {
                         (accessControl.acceptList + packageName).forEach {
@@ -99,32 +71,24 @@ class FlClashVpnService : VpnService(), BaseServiceInterface {
             if (Build.VERSION.SDK_INT >= 29) {
                 setMetered(false)
             }
-            if (props?.allowBypass == true) {
+            if (options.allowBypass) {
                 allowBypass()
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && props?.systemProxy == true) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && options.systemProxy) {
                 setHttpProxy(
                     ProxyInfo.buildDirectProxy(
                         "127.0.0.1",
-                        port,
-                        passList
+                        options.port,
+                        options.bypassDomain
                     )
                 )
             }
-            TunProps(
-                fd = establish()?.detachFd()
-                    ?: throw NullPointerException("Establish VPN rejected by system"),
-                gateway = "$TUN_GATEWAY/$TUN_SUBNET_PREFIX",
-                gateway6 = "$TUN_GATEWAY6/$TUN_SUBNET_PREFIX6",
-                portal = TUN_PORTAL,
-                portal6 = TUN_PORTAL6,
-                dns = TUN_DNS,
-                dns6 = TUN_DNS6
-            )
+            establish()?.detachFd()
+                ?: throw NullPointerException("Establish VPN rejected by system")
         }
     }
 
-    fun updateUnderlyingNetworks( networks: Array<Network>){
+    fun updateUnderlyingNetworks(networks: Array<Network>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
             this.setUnderlyingNetworks(networks)
         }
@@ -159,6 +123,7 @@ class FlClashVpnService : VpnService(), BaseServiceInterface {
                 PendingIntent.FLAG_UPDATE_CURRENT
             )
         }
+
         with(NotificationCompat.Builder(this, CHANNEL)) {
             setSmallIcon(R.drawable.ic_stat_name)
             setContentTitle("FlClash")
@@ -169,6 +134,11 @@ class FlClashVpnService : VpnService(), BaseServiceInterface {
                 foregroundServiceBehavior = FOREGROUND_SERVICE_IMMEDIATE
             }
             setOngoing(true)
+            addAction(
+                0,
+                GlobalState.getText("stop"),
+                getActionPendingIntent("STOP")
+            )
             setShowWhen(false)
             setOnlyAlertOnce(true)
             setAutoCancel(true)
@@ -177,21 +147,26 @@ class FlClashVpnService : VpnService(), BaseServiceInterface {
 
     @SuppressLint("ForegroundServiceType", "WrongConstant")
     override fun startForeground(title: String, content: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            var channel = manager?.getNotificationChannel(CHANNEL)
-            if (channel == null) {
-                channel =
-                    NotificationChannel(CHANNEL, "FlClash", NotificationManager.IMPORTANCE_LOW)
-                manager?.createNotificationChannel(channel)
+        CoroutineScope(Dispatchers.Default).launch {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val manager = getSystemService(NotificationManager::class.java)
+                var channel = manager?.getNotificationChannel(CHANNEL)
+                if (channel == null) {
+                    channel =
+                        NotificationChannel(CHANNEL, "FlClash", NotificationManager.IMPORTANCE_LOW)
+                    manager?.createNotificationChannel(channel)
+                }
             }
-        }
-        val notification =
-            notificationBuilder.setContentTitle(title).setContentText(content).build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(notificationId, notification, FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(notificationId, notification)
+            val notification =
+                notificationBuilder
+                    .setContentTitle(title)
+                    .setContentText(content)
+                    .build()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(notificationId, notification, FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(notificationId, notification)
+            }
         }
     }
 
@@ -210,7 +185,7 @@ class FlClashVpnService : VpnService(), BaseServiceInterface {
                 val isSuccess = super.onTransact(code, data, reply, flags)
                 if (!isSuccess) {
                     CoroutineScope(Dispatchers.Main).launch {
-                        GlobalState.getCurrentTitlePlugin()?.handleStop()
+                        GlobalState.getCurrentTilePlugin()?.handleStop()
                     }
                 }
                 return isSuccess

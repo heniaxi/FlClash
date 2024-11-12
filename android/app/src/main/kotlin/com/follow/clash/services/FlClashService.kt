@@ -11,14 +11,14 @@ import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.follow.clash.BaseServiceInterface
+import com.follow.clash.GlobalState
 import com.follow.clash.MainActivity
-import com.follow.clash.models.Props
+import com.follow.clash.extensions.getActionPendingIntent
+import com.follow.clash.models.VpnOptions
 
 
-@SuppressLint("WrongConstant")
 class FlClashService : Service(), BaseServiceInterface {
 
     private val binder = LocalBinder()
@@ -66,6 +66,11 @@ class FlClashService : Service(), BaseServiceInterface {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 foregroundServiceBehavior = FOREGROUND_SERVICE_IMMEDIATE
             }
+            addAction(
+                0,
+                GlobalState.getText("stop"),
+                getActionPendingIntent("CHANGE")
+            )
             setOngoing(true)
             setShowWhen(false)
             setOnlyAlertOnce(true)
@@ -73,7 +78,7 @@ class FlClashService : Service(), BaseServiceInterface {
         }
     }
 
-    override fun start(port: Int, props: Props?) = null
+    override fun start(options: VpnOptions) = 0
 
     override fun stop() {
         stopSelf()

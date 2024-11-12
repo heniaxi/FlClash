@@ -68,28 +68,7 @@ class ProxiesActionsBuilder extends StatelessWidget {
 
 typedef StateWidgetBuilder<T> = Widget Function(T state);
 
-class ScaleBuilder extends StatelessWidget {
-  final StateWidgetBuilder<double> builder;
-
-  const ScaleBuilder({
-    super.key,
-    required this.builder,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Selector<Config, double>(
-      selector: (_, config) {
-        return config.scaleProps.custom
-            ? config.scaleProps.scale
-            : 1;
-      },
-      builder: (_, state, __) {
-        return builder(state);
-      },
-    );
-  }
-}
+typedef StateAndChildWidgetBuilder<T> = Widget Function(T state, Widget? child);
 
 class LocaleBuilder extends StatelessWidget {
   final StateWidgetBuilder<String?> builder;
@@ -102,10 +81,37 @@ class LocaleBuilder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Selector<Config, String?>(
-      selector: (_, config) => config.locale,
+      selector: (_, config) => config.appSetting.locale,
       builder: (_, state, __) {
         return builder(state);
       },
+    );
+  }
+}
+
+class ActiveBuilder extends StatelessWidget {
+  final String label;
+  final StateAndChildWidgetBuilder<bool> builder;
+  final Widget? child;
+
+  const ActiveBuilder({
+    super.key,
+    required this.label,
+    required this.builder,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<AppState, bool>(
+      selector: (_, appState) => appState.currentLabel == label,
+      builder: (_, state, child) {
+        return builder(
+          state,
+          child,
+        );
+      },
+      child: child,
     );
   }
 }

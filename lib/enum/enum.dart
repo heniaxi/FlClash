@@ -15,6 +15,10 @@ extension GroupTypeExtension on GroupType {
       )
       .toList();
 
+  bool get isURLTestOrFallback {
+    return [GroupType.URLTest, GroupType.Fallback].contains(this);
+  }
+
   static GroupType? getGroupType(String value) {
     final index = GroupTypeExtension.valueList.indexOf(value);
     if (index == -1) return null;
@@ -151,4 +155,21 @@ enum HotAction {
   mode,
   proxy,
   tun,
+}
+
+enum ProxiesIconStyle {
+  standard,
+  none,
+  icon,
+}
+
+enum FontFamily {
+  system(),
+  miSans("MiSans"),
+  twEmoji("Twemoji"),
+  icon("Icons");
+
+  final String? value;
+
+  const FontFamily([this.value]);
 }

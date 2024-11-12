@@ -5,6 +5,7 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:window_ext/window_ext.dart';
 import 'package:window_manager/window_manager.dart';
 
 class WindowManager extends StatefulWidget {
@@ -19,13 +20,16 @@ class WindowManager extends StatefulWidget {
   State<WindowManager> createState() => _WindowContainerState();
 }
 
-class _WindowContainerState extends State<WindowManager> with WindowListener {
+class _WindowContainerState extends State<WindowManager>
+    with WindowListener, WindowExtListener {
   Function? updateLaunchDebounce;
 
   _autoLaunchContainer(Widget child) {
-    return Selector2<Config, ClashConfig, AutoLaunchState>(
-      selector: (_, config, clashConfig) => AutoLaunchState(
-          isAutoLaunch: config.autoLaunch, isOpenTun: clashConfig.tun.enable),
+    return Selector<Config, AutoLaunchState>(
+      selector: (_, config) => AutoLaunchState(
+        isAutoLaunch: config.appSetting.autoLaunch,
+        isAdminAutoLaunch: config.appSetting.adminAutoLaunch,
+      ),
       builder: (_, state, child) {
         updateLaunchDebounce ??= debounce((AutoLaunchState state) {
           autoLaunch?.updateStatus(state);
@@ -45,6 +49,7 @@ class _WindowContainerState extends State<WindowManager> with WindowListener {
   @override
   void initState() {
     super.initState();
+    windowExtManager.addListener(this);
     windowManager.addListener(this);
   }
 
@@ -78,13 +83,20 @@ class _WindowContainerState extends State<WindowManager> with WindowListener {
 
   @override
   void onWindowMinimize() async {
-    await globalState.appController.savePreferences();
+    globalState.appController.savePreferencesDebounce();
     super.onWindowMinimize();
+  }
+
+  @override
+  void onTaskbarCreated() {
+    globalState.appController.updateTray(true);
+    super.onTaskbarCreated();
   }
 
   @override
   Future<void> dispose() async {
     windowManager.removeListener(this);
+    windowExtManager.removeListener(this);
     super.dispose();
   }
 }

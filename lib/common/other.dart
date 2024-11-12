@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -101,17 +102,19 @@ class Other {
   }
 
   String getTrayIconPath({
-    required bool isStart,
     required Brightness brightness,
   }) {
-    final suffix = Platform.isWindows ? "ico" : "png";
-    if (!isStart && Platform.isWindows) {
-      return switch (brightness) {
-        Brightness.dark => "assets/images/icon_white.$suffix",
-        Brightness.light => "assets/images/icon_black.$suffix",
-      };
+    if(Platform.isMacOS){
+      return "assets/images/icon_white.png";
     }
-    return "assets/images/icon.$suffix";
+    final suffix = Platform.isWindows ? "ico" : "png";
+    if (Platform.isWindows) {
+      return "assets/images/icon.$suffix";
+    }
+    return switch (brightness) {
+      Brightness.dark => "assets/images/icon_white.$suffix",
+      Brightness.light => "assets/images/icon_black.$suffix",
+    };
   }
 
   int compareVersions(String version1, String version2) {
@@ -171,25 +174,27 @@ class Other {
     if (disposition == null) return null;
     final parseValue = HeaderValue.parse(disposition);
     final parameters = parseValue.parameters;
-    final key = parameters.keys
-        .firstWhere((key) => key.startsWith("filename"), orElse: () => '');
-    if (key.isEmpty) return null;
-    if (key == "filename*") {
-      return Uri.decodeComponent((parameters[key] ?? "").split("'").last);
-    } else {
-      return parameters[key];
+    final fileNamePointKey = parameters.keys
+        .firstWhere((key) => key == "filename*", orElse: () => "");
+    if (fileNamePointKey.isNotEmpty) {
+      final res = parameters[fileNamePointKey]?.split("''") ?? [];
+      if (res.length >= 2) {
+        return Uri.decodeComponent(res[1]);
+      }
     }
+    final fileNameKey = parameters.keys
+        .firstWhere((key) => key == "filename", orElse: () => "");
+    if (fileNameKey.isEmpty) return null;
+    return parameters[fileNameKey];
   }
 
-  double getViewWidth() {
-    final view = WidgetsBinding.instance.platformDispatcher.views.first;
-    final size = view.physicalSize / view.devicePixelRatio;
-    return size.width;
+  FlutterView getScreen() {
+    return WidgetsBinding.instance.platformDispatcher.views.first;
   }
 
   List<String> parseReleaseBody(String? body) {
     if (body == null) return [];
-    const pattern = r'- (.+?)\. \[.+?\]';
+    const pattern = r'- \s*(.*)';
     final regex = RegExp(pattern);
     return regex
         .allMatches(body)
@@ -219,6 +224,15 @@ class Other {
 
   String getBackupFileName() {
     return "${appName}_backup_${DateTime.now().show}.zip";
+  }
+
+  String get logFile {
+    return "${appName}_${DateTime.now().show}.log";
+  }
+
+  Size getScreenSize() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    return view.physicalSize / view.devicePixelRatio;
   }
 }
 

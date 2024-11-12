@@ -1,6 +1,5 @@
 package com.follow.clash.plugins
 
-import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -16,9 +15,7 @@ import com.follow.clash.BaseServiceInterface
 import com.follow.clash.GlobalState
 import com.follow.clash.RunState
 import com.follow.clash.extensions.getProtocol
-import com.follow.clash.extensions.resolvePrimaryDns
-import com.follow.clash.models.Props
-import com.follow.clash.models.TunProps
+import com.follow.clash.extensions.resolveDns
 import com.follow.clash.services.FlClashService
 import com.follow.clash.services.FlClashVpnService
 import com.google.gson.Gson
@@ -32,14 +29,14 @@ import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import kotlin.concurrent.withLock
 import com.follow.clash.models.Process
+import com.follow.clash.models.VpnOptions
 
 
 class VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var flutterMethodChannel: MethodChannel
     private lateinit var context: Context
     private var flClashService: BaseServiceInterface? = null
-    private var port: Int = 7890
-    private var props: Props? = null
+    private lateinit var options: VpnOptions
     private lateinit var scope: CoroutineScope
 
     private val connectivity by lazy {
@@ -79,11 +76,9 @@ class VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "start" -> {
-                port = call.argument<Int>("port")!!
-                val args = call.argument<String>("args")
-                props =
-                    if (args != null) Gson().fromJson(args, Props::class.java) else null
-                when (props?.enable == true) {
+                val data = call.argument<String>("data")
+                options = Gson().fromJson(data, VpnOptions::class.java)
+                when (options.enable) {
                     true -> handleStartVpn()
                     false -> start()
                 }
@@ -163,8 +158,7 @@ class VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    @SuppressLint("ForegroundServiceType")
-    fun handleStartVpn() {
+    private fun handleStartVpn() {
         GlobalState.getCurrentAppPlugin()?.requestVpnPermission(context) {
             start()
         }
@@ -177,9 +171,11 @@ class VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     val networks = mutableSetOf<Network>()
 
     fun onUpdateNetwork() {
-        val dns = networks.mapNotNull {
-            connectivity?.resolvePrimaryDns(it)
-        }.joinToString(separator = ",")
+        val dns = networks.flatMap { network ->
+            connectivity?.resolveDns(network) ?: emptyList()
+        }
+            .toSet()
+            .joinToString(",")
         scope.launch {
             withContext(Dispatchers.Main) {
                 flutterMethodChannel.invokeMethod("dnsChanged", dns)
@@ -226,7 +222,6 @@ class VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         onUpdateNetwork()
     }
 
-    @SuppressLint("ForegroundServiceType")
     private fun startForeground(title: String, content: String) {
         GlobalState.runLock.withLock {
             if (GlobalState.runState.value != RunState.START) return
@@ -242,10 +237,10 @@ class VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         GlobalState.runLock.withLock {
             if (GlobalState.runState.value == RunState.START) return
             GlobalState.runState.value = RunState.START
-            val tunProps = flClashService?.start(port, props)
+            val fd = flClashService?.start(options)
             flutterMethodChannel.invokeMethod(
                 "started",
-                Gson().toJson(tunProps, TunProps::class.java)
+                fd
             )
         }
     }
@@ -260,7 +255,7 @@ class VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun bindService() {
-        val intent = when (props?.enable == true) {
+        val intent = when (options.enable) {
             true -> Intent(context, FlClashVpnService::class.java)
             false -> Intent(context, FlClashService::class.java)
         }

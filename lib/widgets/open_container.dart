@@ -427,7 +427,7 @@ class _OpenContainerRoute<T> extends ModalRoute<T> {
     Animation<double> secondaryAnimation,
   ) {
     return Selector<Config, ThemeMode>(
-      selector: (_, config) => config.themeMode,
+      selector: (_, config) => config.themeProps.themeMode,
       builder: (_, __, ___) {
         _colorTween = _getColorTween(
           transitionType: transitionType,
@@ -462,7 +462,6 @@ class _OpenContainerRoute<T> extends ModalRoute<T> {
               );
               TweenSequence<Color?>? colorTween;
               TweenSequence<double>? closedOpacityTween, openOpacityTween;
-              Animatable<Color?>? scrimTween;
               switch (animation.status) {
                 case AnimationStatus.dismissed:
                 case AnimationStatus.forward:

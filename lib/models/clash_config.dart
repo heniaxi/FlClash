@@ -1,8 +1,5 @@
 // ignore_for_file: invalid_annotation_target
 
-import 'dart:io';
-
-import 'package:collection/collection.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +11,8 @@ part 'generated/clash_config.g.dart';
 
 part 'generated/clash_config.freezed.dart';
 
+const defaultTun = Tun();
+
 @freezed
 class Tun with _$Tun {
   const factory Tun({
@@ -24,6 +23,17 @@ class Tun with _$Tun {
   }) = _Tun;
 
   factory Tun.fromJson(Map<String, Object?> json) => _$TunFromJson(json);
+
+  factory Tun.realFromJson(Map<String, Object?>? json) {
+    if (json == null) {
+      return defaultTun;
+    }
+    try {
+      return Tun.fromJson(json);
+    } catch (_) {
+      return defaultTun;
+    }
+  }
 }
 
 @freezed
@@ -45,6 +55,8 @@ class FallbackFilter with _$FallbackFilter {
       _$FallbackFilterFromJson(json);
 }
 
+const defaultDns = Dns();
+
 @freezed
 class Dns with _$Dns {
   const factory Dns({
@@ -52,7 +64,7 @@ class Dns with _$Dns {
     @Default(false) @JsonKey(name: "prefer-h3") bool preferH3,
     @Default(true) @JsonKey(name: "use-hosts") bool useHosts,
     @Default(true) @JsonKey(name: "use-system-hosts") bool useSystemHosts,
-    @Default(true) @JsonKey(name: "respect-rules") bool respectRules,
+    @Default(false) @JsonKey(name: "respect-rules") bool respectRules,
     @Default(false) bool ipv6,
     @Default(["223.5.5.5"])
     @JsonKey(name: "default-nameserver")
@@ -147,7 +159,7 @@ class ClashConfig extends ChangeNotifier {
         _geodataLoader = geodataLoaderMemconservative,
         _externalController = '',
         _keepAliveInterval = defaultKeepAliveInterval,
-        _dns = const Dns(),
+        _dns = defaultDns,
         _geoXUrl = defaultGeoXMap,
         _rules = [],
         _hosts = {};
@@ -263,9 +275,6 @@ class ClashConfig extends ChangeNotifier {
   }
 
   Tun get tun {
-    if (Platform.isAndroid) {
-      return _tun.copyWith(enable: false);
-    }
     return _tun;
   }
 
@@ -318,7 +327,7 @@ class ClashConfig extends ChangeNotifier {
   GeoXMap get geoXUrl => _geoXUrl;
 
   set geoXUrl(GeoXMap value) {
-    if (!const MapEquality<String, String>().equals(value, _geoXUrl)) {
+    if (!stringAndStringMapEquality.equals(value, _geoXUrl)) {
       _geoXUrl = value;
       notifyListeners();
     }
@@ -328,7 +337,7 @@ class ClashConfig extends ChangeNotifier {
   HostsMap get hosts => _hosts;
 
   set hosts(HostsMap value) {
-    if (!const MapEquality<String, String>().equals(value, _hosts)) {
+    if (!stringAndStringMapEquality.equals(value, _hosts)) {
       _hosts = value;
       notifyListeners();
     }
@@ -361,5 +370,10 @@ class ClashConfig extends ChangeNotifier {
 
   factory ClashConfig.fromJson(Map<String, dynamic> json) {
     return _$ClashConfigFromJson(json);
+  }
+
+  @override
+  String toString() {
+    return 'ClashConfig{_mixedPort: $_mixedPort, _allowLan: $_allowLan, _ipv6: $_ipv6, _geodataLoader: $_geodataLoader, _logLevel: $_logLevel, _externalController: $_externalController, _mode: $_mode, _findProcessMode: $_findProcessMode, _keepAliveInterval: $_keepAliveInterval, _unifiedDelay: $_unifiedDelay, _tcpConcurrent: $_tcpConcurrent, _tun: $_tun, _dns: $_dns, _geoXUrl: $_geoXUrl, _rules: $_rules, _globalRealUa: $_globalRealUa, _hosts: $_hosts}';
   }
 }

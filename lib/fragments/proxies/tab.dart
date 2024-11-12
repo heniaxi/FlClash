@@ -1,6 +1,4 @@
 import 'dart:math';
-
-import 'package:collection/collection.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -120,8 +118,7 @@ class ProxiesTabFragmentState extends State<ProxiesTabFragment>
         );
       },
       shouldRebuild: (prev, next) {
-        if (!const ListEquality<String>()
-            .equals(prev.groupNames, next.groupNames)) {
+        if (!stringListEquality.equals(prev.groupNames, next.groupNames)) {
           _tabController?.dispose();
           _tabController = null;
           return true;
@@ -281,17 +278,34 @@ class ProxyGroupViewState extends State<ProxyGroupView> {
     );
   }
 
+  initFab(bool isCurrent, List<Proxy> proxies) {
+    if (!isCurrent) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final commonScaffoldState =
+          context.findAncestorStateOfType<CommonScaffoldState>();
+      commonScaffoldState?.floatingActionButton = DelayTestButton(
+        onClick: () async {
+          await _delayTest(
+            proxies,
+          );
+        },
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Selector2<AppState, Config, ProxyGroupSelectorState>(
       selector: (_, appState, config) {
         final group = appState.getGroupWithName(groupName)!;
         return ProxyGroupSelectorState(
-          proxyCardType: config.proxyCardType,
-          proxiesSortType: config.proxiesSortType,
+          proxyCardType: config.proxiesStyle.cardType,
+          proxiesSortType: config.proxiesStyle.sortType,
           columns: other.getProxiesColumns(
             appState.viewWidth,
-            config.proxiesLayout,
+            config.proxiesStyle.layout,
           ),
           sortNum: appState.sortNum,
           proxies: group.all,
@@ -306,41 +320,39 @@ class ProxyGroupViewState extends State<ProxyGroupView> {
           proxies,
         );
         _lastProxies = sortedProxies;
-        return DelayTestButtonContainer(
-          onClick: () async {
-            await _delayTest(
-              proxies,
-            );
+        return ActiveBuilder(
+          label: "proxies",
+          builder: (isCurrent, child) {
+            initFab(isCurrent, proxies);
+            return child!;
           },
           child: Align(
             alignment: Alignment.topCenter,
-            child: ScaleBuilder(
-              builder: (_) => GridView.builder(
-                controller: _controller,
-                padding: const EdgeInsets.only(
-                  top: 16,
-                  left: 16,
-                  right: 16,
-                  bottom: 80,
-                ),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  mainAxisExtent: getItemHeight(proxyCardType),
-                ),
-                itemCount: sortedProxies.length,
-                itemBuilder: (_, index) {
-                  final proxy = sortedProxies[index];
-                  return ProxyCard(
-                    groupType: state.groupType,
-                    type: proxyCardType,
-                    key: ValueKey('$groupName.${proxy.name}'),
-                    proxy: proxy,
-                    groupName: groupName,
-                  );
-                },
+            child: GridView.builder(
+              controller: _controller,
+              padding: const EdgeInsets.only(
+                top: 16,
+                left: 16,
+                right: 16,
+                bottom: 96,
               ),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                mainAxisExtent: getItemHeight(proxyCardType),
+              ),
+              itemCount: sortedProxies.length,
+              itemBuilder: (_, index) {
+                final proxy = sortedProxies[index];
+                return ProxyCard(
+                  groupType: state.groupType,
+                  type: proxyCardType,
+                  key: ValueKey('$groupName.${proxy.name}'),
+                  proxy: proxy,
+                  groupName: groupName,
+                );
+              },
             ),
           ),
         );
@@ -349,22 +361,19 @@ class ProxyGroupViewState extends State<ProxyGroupView> {
   }
 }
 
-class DelayTestButtonContainer extends StatefulWidget {
-  final Widget child;
+class DelayTestButton extends StatefulWidget {
   final Future Function() onClick;
 
-  const DelayTestButtonContainer({
+  const DelayTestButton({
     super.key,
-    required this.child,
     required this.onClick,
   });
 
   @override
-  State<DelayTestButtonContainer> createState() =>
-      _DelayTestButtonContainerState();
+  State<DelayTestButton> createState() => _DelayTestButtonState();
 }
 
-class _DelayTestButtonContainerState extends State<DelayTestButtonContainer>
+class _DelayTestButtonState extends State<DelayTestButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scale;
@@ -406,29 +415,23 @@ class _DelayTestButtonContainerState extends State<DelayTestButtonContainer>
 
   @override
   Widget build(BuildContext context) {
-    _controller.reverse();
-    return FloatLayout(
-      floatingWidget: FloatWrapper(
-        child: AnimatedBuilder(
-          animation: _controller.view,
-          builder: (_, child) {
-            return SizedBox(
-              width: 56,
-              height: 56,
-              child: Transform.scale(
-                scale: _scale.value,
-                child: child,
-              ),
-            );
-          },
-          child: FloatingActionButton(
-            heroTag: null,
-            onPressed: _healthcheck,
-            child: const Icon(Icons.network_ping),
+    return AnimatedBuilder(
+      animation: _controller.view,
+      builder: (_, child) {
+        return SizedBox(
+          width: 56,
+          height: 56,
+          child: Transform.scale(
+            scale: _scale.value,
+            child: child,
           ),
-        ),
+        );
+      },
+      child: FloatingActionButton(
+        heroTag: null,
+        onPressed: _healthcheck,
+        child: const Icon(Icons.network_ping),
       ),
-      child: widget.child,
     );
   }
 }

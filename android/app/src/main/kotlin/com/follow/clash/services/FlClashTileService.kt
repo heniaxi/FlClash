@@ -1,9 +1,9 @@
 package com.follow.clash.services
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
-import android.os.IBinder
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import androidx.annotation.RequiresApi
@@ -37,6 +37,7 @@ class FlClashTileService : TileService() {
         GlobalState.runState.observeForever(observer)
     }
 
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     private fun activityTransfer() {
         val intent = Intent(this, TempActivity::class.java)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
@@ -65,19 +66,7 @@ class FlClashTileService : TileService() {
     override fun onClick() {
         super.onClick()
         activityTransfer()
-        if (GlobalState.runState.value == RunState.STOP) {
-            GlobalState.runState.value = RunState.PENDING
-            val titlePlugin = GlobalState.getCurrentTitlePlugin()
-            if (titlePlugin != null) {
-                titlePlugin.handleStart()
-            } else {
-                GlobalState.initServiceEngine(applicationContext)
-            }
-        } else if (GlobalState.runState.value == RunState.START) {
-            GlobalState.runState.value = RunState.PENDING
-            GlobalState.getCurrentTitlePlugin()?.handleStop()
-        }
-
+        GlobalState.handleToggle(applicationContext)
     }
 
     override fun onDestroy() {
